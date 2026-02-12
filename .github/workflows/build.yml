@@ -37,56 +37,20 @@ jobs:
         run: |
           git clone ${{ github.event.inputs.repository_url }} ${{ github.event.inputs.checkout_options}} .
 
-      # 只检测JDK版本
-      - name: Detect JDK Version Only
+      # 检测JDK版本
+      - name: Detect JDK Version
         id: detect-jdk
         run: |
-          echo "🔍 正在检测项目所需的JDK版本..."
-
-          # 多种检测方式，按优先级降序
-          JDK_VERSION=""
-
-          # 检查gradle-wrapper.properties中的Gradle版本，推断JDK版本
-          if [ -z "$JDK_VERSION" ] && [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
-            GRADLE_VERSION=$(grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties | grep -oE 'gradle-[0-9]+\.[0-9]+' | cut -d'-' -f2 | cut -d'.' -f1)
-            if [ -n "$GRADLE_VERSION" ]; then
-              # Gradle 5.x及以上需要JDK 8，Gradle 7.x需要JDK 11，Gradle 8.x需要JDK 17
-              if [ "$GRADLE_VERSION" -ge 9 ]; then
-                JDK_VERSION=21
-              elif [ "$GRADLE_VERSION" -ge 8 ]; then
-                JDK_VERSION=17
-              elif [ "$GRADLE_VERSION" -ge 7 ]; then
-                JDK_VERSION=11
-              elif [ "$GRADLE_VERSION" -ge 5 ]; then
-                JDK_VERSION=8
-              else
-                JDK_VERSION=8
-              fi
-              echo "✅ 从 Gradle $GRADLE_VERSION 推断 JDK 版本: $JDK_VERSION"
-            fi
+          JDK_VERSION=11
+          if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            GRADLE_VERSION=$(grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties | grep -oE 'gradle-[0-9]+' | cut -d'-' -f2)
+            case $GRADLE_VERSION in
+              9|1[0-9]) JDK_VERSION=21 ;;
+              8) JDK_VERSION=17 ;;
+              7) JDK_VERSION=11 ;;
+            esac
           fi
-
-          # 6. 默认使用JDK 11
-          if [ -z "$JDK_VERSION" ]; then
-            JDK_VERSION=11
-            echo "⚠️ 未检测到JDK配置，使用默认版本: 11"
-          fi
-
-          # 输出检测结果
           echo "jdk_version=$JDK_VERSION" >> $GITHUB_OUTPUT
-          echo "📌 最终使用的JDK版本: $JDK_VERSION"
-
-          # 输出仓库信息
-          echo "📦 检出仓库: ${{ github.event.inputs.repository_url }}"
-
-      # 显示仓库信息
-      - name: Display Repository Info
-        run: |
-          echo "🏠 当前仓库信息:"
-          echo "  Remote URL: $(git remote get-url origin 2>/dev/null || echo 'N/A')"
-          echo "  Branch: $(git rev-parse --abbrev-ref HEAD)"
-          echo "  Commit: $(git rev-parse --short HEAD)"
-          echo "  Commit Message: $(git log -1 --pretty=%s)"
 
       # 设置JDK
       - name: Set up JDK
@@ -95,18 +59,6 @@ jobs:
           java-version: ${{ steps.detect-jdk.outputs.jdk_version }}
           distribution: 'temurin'
           cache: gradle
-
-      # 缓存Gradle依赖
-      - name: Cache Gradle Dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            !~/.gradle/caches/build-cache-*
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
 
       # 构建APK
       - name: Build APK
@@ -132,32 +84,21 @@ jobs:
       - name: Generate Build Report
         if: always()
         run: |
-          {
-            echo "# Android APK 构建报告"
-            echo ""
-            echo "## 📋 构建信息"
-            echo "- **构建状态**: ${{ steps.build.outputs.build_status }}"
-            echo "- **构建命令**: ${{ steps.build.outputs.build_command }}"
-            echo "- **JDK版本**: ${{ steps.detect-jdk.outputs.jdk_version }}"
-            echo "- **版本名称**: ${{ steps.version.outputs.version_name }}"
-            echo "- **版本代码**: ${{ steps.version.outputs.version_code }}"
-            echo ""
-            echo "## 📦 仓库信息"
-            echo "- **仓库URL**: ${{ github.event.inputs.repository_url }}"
-            echo "- **检出参数**: ${{ github.event.inputs.checkout_options }}"
-            echo "- **提交**: ${{ github.sha }}"
-            echo "- **工作流**: ${{ github.workflow }}"
-            echo "- **运行ID**: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-            START_TIME=${{ steps.build.outputs.start_time }}
-            END_TIME=$(date +%s)
-            DURATION=$((END_TIME - START_TIME))
-            MINUTES=$((DURATION / 60))
-            SECONDS=$((DURATION % 60))
-            echo "- **构建时长**: ${MINUTES}分${SECONDS}秒"
-            echo ""
-          } > build-report.md
-          
-          echo "📝 构建报告已生成"
+          cat > build-report.md <<EOF
+          # Android APK 构建报告
+
+          ## 📋 构建信息
+          - **构建命令**: ${{ github.event.inputs.build_command }}
+          - **JDK版本**: ${{ steps.detect-jdk.outputs.jdk_version }}
+          - **版本名称**: ${{ steps.version.outputs.version_name }}
+          - **版本代码**: ${{ steps.version.outputs.version_code }}
+
+          ## 📦 仓库信息
+          - **仓库URL**: ${{ github.event.inputs.repository_url }}
+          - **检出参数**: ${{ github.event.inputs.checkout_options }}
+          - **提交**: ${{ github.sha }}
+          - **运行ID**: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
           cat build-report.md
 
       # 上传APK
@@ -170,12 +111,3 @@ jobs:
           makeLatest: "latest"
           allowUpdates: true
           bodyFile: build-report.md
-
-      # 上传构建报告
-      - name: Upload Build Report
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: build-report-${{ steps.version.outputs.version_name }}
-          path: build-report.md
-          retention-days: 90
