@@ -1,0 +1,271 @@
+name: Android APK Build
+
+on:
+  # 允许手动触发工作流，支持指定仓库URL
+  workflow_dispatch:
+    inputs:
+      repository_url:
+        description: 'Git repository URL (optional, uses current repo if empty)'
+        required: false
+        default: ''
+        type: string
+      branch:
+        description: 'Branch to checkout (default: main)'
+        required: false
+        default: 'main'
+        type: string
+      build_type:
+        description: 'Build type (debug/release)'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+      upload_artifact:
+        description: 'Upload APK as artifact'
+        required: true
+        default: true
+        type: boolean
+
+# 环境变量
+env:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'debug' }}
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      # 检出指定仓库（支持自定义URL）
+      - name: Checkout Repository
+        run: |
+          git clone ${{ github.event.inputs.repository_url }} --depth=1 .
+
+      # 只检测JDK版本
+      - name: Detect JDK Version Only
+        id: detect-jdk
+        run: |
+          echo "🔍 正在检测项目所需的JDK版本..."
+
+          # 多种检测方式，按优先级降序
+          JDK_VERSION=""
+
+          # 检查gradle-wrapper.properties中的Gradle版本，推断JDK版本
+          if [ -z "$JDK_VERSION" ] && [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            GRADLE_VERSION=$(grep "distributionUrl" gradle/wrapper/gradle-wrapper.properties | grep -oE 'gradle-[0-9]+\.[0-9]+' | cut -d'-' -f2 | cut -d'.' -f1)
+            if [ -n "$GRADLE_VERSION" ]; then
+              # Gradle 5.x及以上需要JDK 8，Gradle 7.x需要JDK 11，Gradle 8.x需要JDK 17
+              if [ "$GRADLE_VERSION" -ge 9 ]; then
+                JDK_VERSION=21
+              elif [ "$GRADLE_VERSION" -ge 8 ]; then
+                JDK_VERSION=17
+              elif [ "$GRADLE_VERSION" -ge 7 ]; then
+                JDK_VERSION=11
+              elif [ "$GRADLE_VERSION" -ge 5 ]; then
+                JDK_VERSION=8
+              else
+                JDK_VERSION=8
+              fi
+              echo "✅ 从 Gradle $GRADLE_VERSION 推断 JDK 版本: $JDK_VERSION"
+            fi
+          fi
+
+          # 6. 默认使用JDK 11
+          if [ -z "$JDK_VERSION" ]; then
+            JDK_VERSION=11
+            echo "⚠️ 未检测到JDK配置，使用默认版本: 11"
+          fi
+
+          # 输出检测结果
+          echo "jdk_version=$JDK_VERSION" >> $GITHUB_OUTPUT
+          echo "📌 最终使用的JDK版本: $JDK_VERSION"
+
+          # 输出仓库信息
+          if [ -n "${{ github.event.inputs.repository_url }}" ]; then
+            echo "📦 检出仓库: ${{ github.event.inputs.repository_url }}"
+            echo "🌿 检出分支: ${{ github.event.inputs.branch || 'main' }}"
+          else
+            echo "📦 使用当前仓库: ${{ github.repository }}"
+          fi
+
+      # 显示仓库信息
+      - name: Display Repository Info
+        run: |
+          echo "🏠 当前仓库信息:"
+          echo "  Remote URL: $(git remote get-url origin 2>/dev/null || echo 'N/A')"
+          echo "  Branch: $(git rev-parse --abbrev-ref HEAD)"
+          echo "  Commit: $(git rev-parse --short HEAD)"
+          echo "  Commit Message: $(git log -1 --pretty=%s)"
+
+      # 设置JDK（使用检测到的版本）
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: ${{ steps.detect-jdk.outputs.jdk_version }}
+          distribution: 'temurin'
+          cache: gradle
+
+      # 验证JDK版本
+      - name: Verify JDK Version
+        run: |
+          echo "🔧 JDK配置信息:"
+          echo "  配置版本: ${{ steps.detect-jdk.outputs.jdk_version }}"
+          echo "  实际版本:"
+          java -version 2>&1
+          javac -version 2>&1
+          
+          # 验证版本匹配
+          CURRENT_VERSION=$(java -version 2>&1 | head -1 | cut -d'"' -f2 | cut -d'.' -f1)
+          if [ "$CURRENT_VERSION" = "1" ]; then
+            CURRENT_VERSION=8
+          fi
+          
+          echo "  检测到实际JDK主版本: $CURRENT_VERSION"
+          if [ "$CURRENT_VERSION" != "${{ steps.detect-jdk.outputs.jdk_version }}" ]; then
+            echo "⚠️ 警告: 实际JDK版本($CURRENT_VERSION)与检测版本(${{ steps.detect-jdk.outputs.jdk_version }})不一致"
+          else
+            echo "✅ JDK版本验证通过"
+          fi
+
+      # 缓存Gradle依赖
+      - name: Cache Gradle Dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            !~/.gradle/caches/build-cache-*
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # 缓存Gradle构建缓存
+      - name: Cache Gradle Build Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches/build-cache-*
+            **/.gradle/build-cache
+          key: ${{ runner.os }}-gradle-buildcache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-buildcache-
+
+      # 授予执行权限
+      - name: Grant Execute Permission
+        run: |
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
+            echo "✅ gradlew 已授予执行权限"
+          else
+            echo "⚠️ 未找到 gradlew 文件"
+          fi
+
+      # 验证Gradle Wrapper
+      - name: Validate Gradle Wrapper
+        uses: gradle/wrapper-validation-action@v1
+        continue-on-error: true
+
+      # 构建APK
+      - name: Build APK
+        id: build
+        env:
+          BUILD_TYPE: ${{ env.BUILD_TYPE }}
+        run: |
+          echo "🏗️ 开始构建APK..."
+          echo "   构建类型: $BUILD_TYPE"
+          echo "   JDK版本: ${{ steps.detect-jdk.outputs.jdk_version }}"
+          
+          # 构建命令
+          BUILD_COMMAND="assemble$(echo $BUILD_TYPE | tr '[:lower:]' '[:upper:]' | cut -c1)$(echo $BUILD_TYPE | cut -c2-)"
+          
+          if [ -f "gradlew" ]; then
+            ./gradlew $BUILD_COMMAND
+          else
+            gradle $BUILD_COMMAND
+          fi
+          
+          # 检查构建结果
+          if [ $? -eq 0 ]; then
+            echo "build_status=success" >> $GITHUB_OUTPUT
+            echo "✅ APK构建成功"
+          else
+            echo "build_status=failed" >> $GITHUB_OUTPUT
+            echo "❌ APK构建失败"
+            exit 1
+          fi
+
+      # 生成版本信息
+      - name: Generate Version Info
+        id: version
+        run: |
+          # 生成版本号
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD | sed 's/\//-/g')
+          BUILD_DATE=$(date '+%Y%m%d-%H%M%S')
+          BUILD_NUMBER=${GITHUB_RUN_NUMBER}
+          
+          VERSION_NAME="${BRANCH_NAME}-${BUILD_DATE}-${COMMIT_HASH}"
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "version_code=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "📦 版本名称: $VERSION_NAME"
+          echo "📦 版本代码: $BUILD_NUMBER"
+      # 上传APK到Artifact
+      - name: Upload APK Artifact
+        if: ${{ github.event.inputs.upload_artifact != 'false' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-apk-${{ env.BUILD_TYPE }}-${{ steps.version.outputs.version_name }}
+          path: project/**/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      # 生成构建报告
+      - name: Generate Build Report
+        if: always()
+        run: |
+          {
+            echo "# Android APK 构建报告"
+            echo ""
+            echo "## 📋 构建信息"
+            echo "- **构建状态**: ${{ steps.build.outputs.build_status }}"
+            echo "- **构建类型**: ${{ env.BUILD_TYPE }}"
+            echo "- **JDK版本**: ${{ steps.detect-jdk.outputs.jdk_version }}"
+            echo "- **版本名称**: ${{ steps.version.outputs.version_name }}"
+            echo "- **版本代码**: ${{ steps.version.outputs.version_code }}"
+            echo ""
+            echo "## 📦 仓库信息"
+            echo "- **仓库URL**: ${{ github.event.inputs.repository_url || github.repository }}"
+            echo "- **分支**: ${{ github.event.inputs.branch || github.ref_name }}"
+            echo "- **提交**: ${{ github.sha }}"
+            echo "- **工作流**: ${{ github.workflow }}"
+            echo "- **运行ID**: ${{ github.run_id }}"
+            echo ""
+            echo "## 📱 构建产物"
+            echo "APK文件已上传到Artifacts，可下载安装"
+          } > build-report.md
+          
+          echo "📝 构建报告已生成"
+          cat build-report.md
+
+      # 上传构建报告
+      - name: Upload Build Report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-report-${{ steps.version.outputs.version_name }}
+          path: build-report.md
+          retention-days: 90
+
+  # 清理作业
+  cleanup:
+    name: Cleanup Workspace
+    needs: build-apk
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clean Gradle Cache
+        run: |
+          rm -rf ~/.gradle/caches/ || true
+          echo "🧹 Gradle缓存已清理"
