@@ -21,6 +21,11 @@ on:
         required: true
         default: 'bash gradlew asDebug'
         type: string
+      artifacts_pattern:
+        description: 'Artifacts pattern to upload'
+        required: false
+        default: '**/outputs/apk/**/*.apk'
+        type: string
 
 jobs:
   build-apk:
@@ -161,7 +166,7 @@ jobs:
         with:
           tag: "${{ steps.version.outputs.version_name }}"
           draft: false
-          artifacts: "**/outputs/apk/**/*.apk"
+          artifacts: "${{ github.event.inputs.artifacts_pattern }}"
           makeLatest: "latest"
           allowUpdates: true
           bodyFile: build-report.md
