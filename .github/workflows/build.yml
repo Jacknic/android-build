@@ -109,28 +109,6 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # 验证JDK版本
-      - name: Verify JDK Version
-        run: |
-          echo "🔧 JDK配置信息:"
-          echo "  配置版本: ${{ steps.detect-jdk.outputs.jdk_version }}"
-          echo "  实际版本:"
-          java -version 2>&1
-          javac -version 2>&1
-          
-          # 验证版本匹配
-          CURRENT_VERSION=$(java -version 2>&1 | head -1 | cut -d'"' -f2 | cut -d'.' -f1)
-          if [ "$CURRENT_VERSION" = "1" ]; then
-            CURRENT_VERSION=8
-          fi
-          
-          echo "  检测到实际JDK主版本: $CURRENT_VERSION"
-          if [ "$CURRENT_VERSION" != "${{ steps.detect-jdk.outputs.jdk_version }}" ]; then
-            echo "⚠️ 警告: 实际JDK版本($CURRENT_VERSION)与检测版本(${{ steps.detect-jdk.outputs.jdk_version }})不一致"
-          else
-            echo "✅ JDK版本验证通过"
-          fi
-
       # 缓存Gradle依赖
       - name: Cache Gradle Dependencies
         uses: actions/cache@v3
@@ -142,27 +120,6 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
-
-      # 缓存Gradle构建缓存
-      - name: Cache Gradle Build Cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.gradle/caches/build-cache-*
-            **/.gradle/build-cache
-          key: ${{ runner.os }}-gradle-buildcache-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-buildcache-
-
-      # 授予执行权限
-      - name: Grant Execute Permission
-        run: |
-          if [ -f "gradlew" ]; then
-            chmod +x gradlew
-            echo "✅ gradlew 已授予执行权限"
-          else
-            echo "⚠️ 未找到 gradlew 文件"
-          fi
 
       # 构建APK
       - name: Build APK
@@ -178,7 +135,7 @@ jobs:
           BUILD_COMMAND="assemble$(echo $BUILD_TYPE | tr '[:lower:]' '[:upper:]' | cut -c1)$(echo $BUILD_TYPE | cut -c2-)"
           
           if [ -f "gradlew" ]; then
-            ./gradlew $BUILD_COMMAND
+            bash gradlew $BUILD_COMMAND
           else
             gradle $BUILD_COMMAND
           fi
@@ -229,8 +186,6 @@ jobs:
             echo "- **工作流**: ${{ github.workflow }}"
             echo "- **运行ID**: ${{ github.run_id }}"
             echo ""
-            echo "## 📱 构建产物"
-            echo "APK文件已上传到Artifacts，可下载安装"
           } > build-report.md
           
           echo "📝 构建报告已生成"
@@ -243,6 +198,7 @@ jobs:
           tag: "${{ steps.version.outputs.version_name }}"
           draft: false
           artifacts: "**/outputs/apk/**/*.apk"
+          makeLatest: "latest"
           allowUpdates: true
           bodyFile: build-report.md
 
