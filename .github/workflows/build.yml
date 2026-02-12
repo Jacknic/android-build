@@ -1,5 +1,8 @@
 name: Android APK Build
 
+permissions:
+  contents: write
+
 on:
   # 允许手动触发工作流，支持指定仓库URL
   workflow_dispatch:
@@ -246,7 +249,7 @@ jobs:
           draft: false
           artifacts: "**/outputs/apk/**/*.apk"
           allowUpdates: true
-          bodyFile:  build-report.md
+          bodyFile: build-report.md
 
       # 上传构建报告
       - name: Upload Build Report
