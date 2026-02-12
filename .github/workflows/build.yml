@@ -5,14 +5,13 @@ on:
   workflow_dispatch:
     inputs:
       repository_url:
-        description: 'Git repository URL (optional, uses current repo if empty)'
+        description: 'Git repository URL'
         required: false
-        default: ''
         type: string
       branch:
-        description: 'Branch to checkout (default: main)'
+        description: 'Branch to checkout'
         required: false
-        default: 'main'
+        default: ''
         type: string
       build_type:
         description: 'Build type (debug/release)'
@@ -211,16 +210,6 @@ jobs:
           echo "version_code=$BUILD_NUMBER" >> $GITHUB_OUTPUT
           echo "📦 版本名称: $VERSION_NAME"
           echo "📦 版本代码: $BUILD_NUMBER"
-      # 上传APK到Artifact
-      - name: Upload APK Artifact
-        if: ${{ github.event.inputs.upload_artifact != 'false' }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: android-apk-${{ env.BUILD_TYPE }}-${{ steps.version.outputs.version_name }}
-          path: ./**/outputs/apk/**/*.apk
-          if-no-files-found: error
-          retention-days: 90
-
       # 生成构建报告
       - name: Generate Build Report
         if: always()
@@ -236,8 +225,8 @@ jobs:
             echo "- **版本代码**: ${{ steps.version.outputs.version_code }}"
             echo ""
             echo "## 📦 仓库信息"
-            echo "- **仓库URL**: ${{ github.event.inputs.repository_url || github.repository }}"
-            echo "- **分支**: ${{ github.event.inputs.branch || github.ref_name }}"
+            echo "- **仓库URL**: ${{ github.event.inputs.repository_url }}"
+            echo "- **分支**: ${{ github.event.inputs.branch }}"
             echo "- **提交**: ${{ github.sha }}"
             echo "- **工作流**: ${{ github.workflow }}"
             echo "- **运行ID**: ${{ github.run_id }}"
@@ -248,6 +237,17 @@ jobs:
           
           echo "📝 构建报告已生成"
           cat build-report.md
+
+      # 上传APK
+      - name: Upload APK release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: "${{ steps.version.outputs.version_name }}"
+          draft: false
+          artifacts: "**/outputs/apk/**/*.apk"
+          allowUpdates: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+          bodyFile:  build-report.md
 
       # 上传构建报告
       - name: Upload Build Report
