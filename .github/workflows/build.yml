@@ -9,7 +9,7 @@ on:
     inputs:
       repository_url:
         description: 'Git repository URL'
-        required: false
+        required: true
         type: string
       checkout_options:
         description: 'checkout options (e.g., -b branch_name --depth=1)'
