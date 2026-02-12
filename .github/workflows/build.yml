@@ -164,11 +164,6 @@ jobs:
             echo "⚠️ 未找到 gradlew 文件"
           fi
 
-      # 验证Gradle Wrapper
-      - name: Validate Gradle Wrapper
-        uses: gradle/wrapper-validation-action@v1
-        continue-on-error: true
-
       # 构建APK
       - name: Build APK
         id: build
@@ -208,7 +203,7 @@ jobs:
           BUILD_DATE=$(date '+%Y%m%d-%H%M%S')
           BUILD_NUMBER=${GITHUB_RUN_NUMBER}
           
-          VERSION_NAME="${BRANCH_NAME}-${BUILD_DATE}-${COMMIT_HASH}"
+          VERSION_NAME="${BUILD_DATE}-${COMMIT_HASH}"
           echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
           echo "version_code=$BUILD_NUMBER" >> $GITHUB_OUTPUT
           echo "📦 版本名称: $VERSION_NAME"
