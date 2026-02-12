@@ -217,7 +217,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: android-apk-${{ env.BUILD_TYPE }}-${{ steps.version.outputs.version_name }}
-          path: project/**/outputs/apk/**/*.apk
+          path: ./**/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 90
 
@@ -257,15 +257,3 @@ jobs:
           name: build-report-${{ steps.version.outputs.version_name }}
           path: build-report.md
           retention-days: 90
-
-  # 清理作业
-  cleanup:
-    name: Cleanup Workspace
-    needs: build-apk
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clean Gradle Cache
-        run: |
-          rm -rf ~/.gradle/caches/ || true
-          echo "🧹 Gradle缓存已清理"
