@@ -23,7 +23,7 @@ on:
         type: string
       artifacts_pattern:
         description: 'Artifacts pattern to upload'
-        required: false
+        required: true
         default: '**/outputs/apk/**/*.apk'
         type: string
 
