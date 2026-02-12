@@ -246,7 +246,6 @@ jobs:
           draft: false
           artifacts: "**/outputs/apk/**/*.apk"
           allowUpdates: true
-          token: ${{ secrets.GITHUB_TOKEN }}
           bodyFile:  build-report.md
 
       # 上传构建报告
