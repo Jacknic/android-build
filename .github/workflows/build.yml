@@ -11,29 +11,16 @@ on:
         description: 'Git repository URL'
         required: false
         type: string
-      branch:
-        description: 'Branch to checkout'
+      checkout_options:
+        description: 'checkout options (e.g., -b branch_name --depth=1)'
         required: false
-        default: ''
+        default: '--depth=1'
         type: string
-      build_type:
-        description: 'Build type (debug/release)'
+      build_command:
+        description: 'Build command'
         required: true
-        default: 'debug'
-        type: choice
-        options:
-          - debug
-          - release
-      upload_artifact:
-        description: 'Upload APK as artifact'
-        required: true
-        default: true
-        type: boolean
-
-# 环境变量
-env:
-  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
-  BUILD_TYPE: ${{ github.event.inputs.build_type || 'debug' }}
+        default: 'bash gradlew asDebug'
+        type: string
 
 jobs:
   build-apk:
@@ -43,7 +30,7 @@ jobs:
       # 检出指定仓库（支持自定义URL）
       - name: Checkout Repository
         run: |
-          git clone ${{ github.event.inputs.repository_url }} --depth=1 .
+          git clone ${{ github.event.inputs.repository_url }} ${{ github.event.inputs.checkout_options}} .
 
       # 只检测JDK版本
       - name: Detect JDK Version Only
@@ -85,12 +72,7 @@ jobs:
           echo "📌 最终使用的JDK版本: $JDK_VERSION"
 
           # 输出仓库信息
-          if [ -n "${{ github.event.inputs.repository_url }}" ]; then
-            echo "📦 检出仓库: ${{ github.event.inputs.repository_url }}"
-            echo "🌿 检出分支: ${{ github.event.inputs.branch || 'main' }}"
-          else
-            echo "📦 使用当前仓库: ${{ github.repository }}"
-          fi
+          echo "📦 检出仓库: ${{ github.event.inputs.repository_url }}"
 
       # 显示仓库信息
       - name: Display Repository Info
@@ -101,7 +83,7 @@ jobs:
           echo "  Commit: $(git rev-parse --short HEAD)"
           echo "  Commit Message: $(git log -1 --pretty=%s)"
 
-      # 设置JDK（使用检测到的版本）
+      # 设置JDK
       - name: Set up JDK
         uses: actions/setup-java@v3
         with:
@@ -124,31 +106,7 @@ jobs:
       # 构建APK
       - name: Build APK
         id: build
-        env:
-          BUILD_TYPE: ${{ env.BUILD_TYPE }}
-        run: |
-          echo "🏗️ 开始构建APK..."
-          echo "   构建类型: $BUILD_TYPE"
-          echo "   JDK版本: ${{ steps.detect-jdk.outputs.jdk_version }}"
-          
-          # 构建命令
-          BUILD_COMMAND="assemble$(echo $BUILD_TYPE | tr '[:lower:]' '[:upper:]' | cut -c1)$(echo $BUILD_TYPE | cut -c2-)"
-          
-          if [ -f "gradlew" ]; then
-            bash gradlew $BUILD_COMMAND
-          else
-            gradle $BUILD_COMMAND
-          fi
-          
-          # 检查构建结果
-          if [ $? -eq 0 ]; then
-            echo "build_status=success" >> $GITHUB_OUTPUT
-            echo "✅ APK构建成功"
-          else
-            echo "build_status=failed" >> $GITHUB_OUTPUT
-            echo "❌ APK构建失败"
-            exit 1
-          fi
+        run: echo ${{ github.event.inputs.build_command }} | bash
 
       # 生成版本信息
       - name: Generate Version Info
@@ -174,17 +132,23 @@ jobs:
             echo ""
             echo "## 📋 构建信息"
             echo "- **构建状态**: ${{ steps.build.outputs.build_status }}"
-            echo "- **构建类型**: ${{ env.BUILD_TYPE }}"
+            echo "- **构建命令**: ${{ steps.build.outputs.build_command }}"
             echo "- **JDK版本**: ${{ steps.detect-jdk.outputs.jdk_version }}"
             echo "- **版本名称**: ${{ steps.version.outputs.version_name }}"
             echo "- **版本代码**: ${{ steps.version.outputs.version_code }}"
             echo ""
             echo "## 📦 仓库信息"
             echo "- **仓库URL**: ${{ github.event.inputs.repository_url }}"
-            echo "- **分支**: ${{ github.event.inputs.branch }}"
+            echo "- **检出参数**: ${{ github.event.inputs.checkout_options }}"
             echo "- **提交**: ${{ github.sha }}"
             echo "- **工作流**: ${{ github.workflow }}"
-            echo "- **运行ID**: ${{ github.run_id }}"
+            echo "- **运行ID**: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            START_TIME=${{ steps.build.outputs.start_time }}
+            END_TIME=$(date +%s)
+            DURATION=$((END_TIME - START_TIME))
+            MINUTES=$((DURATION / 60))
+            SECONDS=$((DURATION % 60))
+            echo "- **构建时长**: ${MINUTES}分${SECONDS}秒"
             echo ""
           } > build-report.md
           
